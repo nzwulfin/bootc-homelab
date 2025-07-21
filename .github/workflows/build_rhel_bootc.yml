@@ -15,7 +15,8 @@ jobs:
       TAGLIST: latest ${{ github.sha }} ${{ github.ref_name }}
       CONTAINERFILE: Containerfile
     container:
-      image: registry.access.redhat.com/ubi9/ubi
+      # image: registry.access.redhat.com/ubi9/ubi
+image: quay.io/centos/centos:stream10
       options: --privileged
     permissions:
       contents: write
@@ -26,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Get container tools in UBI builder
-        run: dnf -y install podman buildah skopeo
+        run: dnf -y install podman buildah skopeo subscription-manager fuse-overlayfs
 
       - name: Access a subscription via activation key
         env:
