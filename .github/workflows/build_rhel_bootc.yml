@@ -16,7 +16,7 @@ jobs:
       CONTAINERFILE: Containerfile
     container:
       # image: registry.access.redhat.com/ubi9/ubi
-image: quay.io/centos/centos:stream10
+      image: quay.io/centos/centos:stream10
       options: --privileged
     permissions:
       contents: write
