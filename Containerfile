@@ -12,6 +12,9 @@ RUN systemctl enable podman.socket cockpit.socket fstrim.timer pmlogger.service
 # Mask the auto timer so we can control this in a downstream image or host
 RUN systemctl mask bootc-fetch-apply-updates.timer
 
+# Enable nss support for virtdomain name resolution
+RUN sed -i 's/hosts:\s\+ files/& libvirt libvirt_guest/' /etc/nsswitch.conf
+
 # Remove some targeted build leftovers we won't need in var
 RUN rm /var/{cache,lib}/dnf /var/lib/rhsm /var/cache/ldconfig -rf
 
