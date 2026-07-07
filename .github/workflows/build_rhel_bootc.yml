@@ -34,7 +34,7 @@ env:
   SOURCE_REGISTRY_USER: ${{ secrets.SOURCE_REGISTRY_USER }}
   SOURCE_REGISTRY_PASSWORD: ${{ secrets.SOURCE_REGISTRY_PASSWORD }}
   DEST_REGISTRY_HOST: "ghcr.io"
-  DEST_IMAGE: "${{ github.actor }}/${{ github.event.repository.name }}"
+  DEST_IMAGE: "${{ github.repository }}"
   DEST_REGISTRY_USER: ${{ github.actor }}
   DEST_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
