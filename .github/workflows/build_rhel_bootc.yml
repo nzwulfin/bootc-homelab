@@ -1,83 +1,262 @@
-name: Build RHEL bootc image with GHA
+name: Build multi-arch RHEL bootc images with native container tools
+
 on:
   workflow_dispatch:
+    inputs:
+      architectures:
+        description: 'Target architectures'
+        type: choice
+        default: 'both'
+        options:
+          - both
+          - amd64
+          - arm64
+      generate_sbom:
+        description: 'Generate SBOM artifacts'
+        type: boolean
+        default: false
+      sign_image:
+        description: 'Sign image with cosign'
+        type: boolean
+        default: false
   push:
-    tags:
-      - '*'
+    branches: [main]
+  release:
+    types: [published]
+  pull_request:
+    branches: [main]
+
+env:
+  CONTAINERFILE: Containerfile
+  RHT_ORGID: ${{ secrets.RHT_ORGID }}
+  RHT_ACT_KEY: ${{ secrets.RHT_ACT_KEY }}
+  SOURCE_REGISTRY_HOST: "registry.redhat.io"
+  # TODO: FIXME — rename GitHub secrets to SOURCE_REGISTRY_USER / SOURCE_REGISTRY_PASSWORD
+  SOURCE_REGISTRY_USER: ${{ secrets.RHT_REG_SVCUSER }}
+  SOURCE_REGISTRY_PASSWORD: ${{ secrets.RHT_REG_SVCPASS }}
+  DEST_REGISTRY_HOST: "ghcr.io"
+  DEST_IMAGE: "${{ github.actor }}/${{ github.event.repository.name }}"
+  DEST_REGISTRY_USER: ${{ github.actor }}
+  DEST_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  rhel-bootc-image-build:
-    name: Build RHEL bootc image with repo access
-    runs-on: ubuntu-latest
-    env:
-      IMAGE_NAME: ${{github.event.repository.name}}
-      PUSHREGISTRY: ghcr.io/${{ github.actor }}
-      TAGLIST: latest ${{ github.sha }} ${{ github.ref_name }}
-      CONTAINERFILE: Containerfile
-    container:
-      # image: registry.access.redhat.com/ubi9/ubi
-      image: quay.io/centos/centos:stream10
-      options: --privileged
+  compute-tags:
+    runs-on: ubuntu-24.04
+    outputs:
+      taglist: ${{ steps.tags.outputs.taglist }}
+      matrix: ${{ steps.arch.outputs.matrix }}
+      archlist: ${{ steps.arch.outputs.archlist }}
+    steps:
+      - name: Compute tag list
+        id: tags
+        run: |
+          set -euo pipefail
+          TAGS="${{ github.sha }}"
+          REF="${{ github.ref_name }}"
+          SAFE_REF="${REF//\//-}"
+          EVENT="${{ github.event_name }}"
+
+          if [ "$EVENT" = "release" ]; then
+            TAGS="latest $TAGS $SAFE_REF"
+          elif [ "$EVENT" = "push" ] && [ "$SAFE_REF" = "main" ]; then
+            TAGS="latest $TAGS"
+          elif [ "$SAFE_REF" != "main" ]; then
+            TAGS="$TAGS $SAFE_REF"
+          fi
+
+          echo "taglist=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Compute architecture matrix
+        id: arch
+        run: |
+          set -euo pipefail
+          ARCH_INPUT="${{ inputs.architectures || 'both' }}"
+
+          if [ "$ARCH_INPUT" = "both" ]; then
+            echo 'matrix=[{"arch":"amd64","runner":"ubuntu-24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm"}]' >> $GITHUB_OUTPUT
+            echo "archlist=amd64 arm64" >> $GITHUB_OUTPUT
+          elif [ "$ARCH_INPUT" = "amd64" ]; then
+            echo 'matrix=[{"arch":"amd64","runner":"ubuntu-24.04"}]' >> $GITHUB_OUTPUT
+            echo "archlist=amd64" >> $GITHUB_OUTPUT
+          else
+            echo 'matrix=[{"arch":"arm64","runner":"ubuntu-24.04-arm"}]' >> $GITHUB_OUTPUT
+            echo "archlist=arm64" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: compute-tags
+    name: build / ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.compute-tags.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
     permissions:
-      contents: write
+      contents: read
       packages: write
+    env:
+      TAGLIST: ${{ needs.compute-tags.outputs.taglist }}
 
     steps:
-      - name: Clone the repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Get container tools in UBI builder
-        run: dnf -y install podman buildah skopeo subscription-manager fuse-overlayfs
-
-      - name: Access a subscription via activation key
-        env:
-          SMDEV_CONTAINER_OFF: 1
-          orgid: ${{ secrets.RHT_ORGID }}
-          activation_key: ${{ secrets.RHT_ACT_KEY }}
-        run: subscription-manager register --org=$orgid --activationkey=$activation_key
-
-      # workaround for https://github.com/redhat-actions/podman-login/issues/42 since the docker config from the host doesn't come up to the container
-      - name: Workaround open podman-login action issue
-        env:
-          auth: "{ \"auths\": {} }"
+      - name: Install updated container tools
         run: |
-          mkdir -p $HOME/.docker
-          echo $auth > $HOME/.docker/config.json
+          set -euo pipefail
+          if [ "$(dpkg --print-architecture)" = "amd64" ]; then
+            mirror="http://azure.archive.ubuntu.com/ubuntu"
+          else
+            mirror="http://ports.ubuntu.com/ubuntu-ports"
+          fi
+          echo "deb ${mirror} plucky universe main" | sudo tee /etc/apt/sources.list.d/plucky.list
+          printf 'Package: *\nPin: release n=plucky\nPin-Priority: 100\n' | sudo tee /etc/apt/preferences.d/plucky.pref
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends crun/plucky podman/plucky
 
-      - name: Log in to the RHT terms based registry
-        uses: redhat-actions/podman-login@v1
+      - name: Build image
+        run: |
+          podman volume create build-storage
+          podman run --rm --privileged \
+            -v build-storage:/var/lib/containers \
+            -v ${{ github.workspace }}:/build \
+            -e SMDEV_CONTAINER_OFF=1 \
+            -e SOURCE_REGISTRY_HOST \
+            -e CONTAINERFILE \
+            -e RHT_ORGID -e RHT_ACT_KEY \
+            -e SOURCE_REGISTRY_USER -e SOURCE_REGISTRY_PASSWORD \
+            -e DEST_REGISTRY_HOST -e DEST_IMAGE \
+            registry.access.redhat.com/ubi10/ubi bash -c '
+              set -euo pipefail
+              dnf -y install buildah
+              subscription-manager register --org="${RHT_ORGID}" --activationkey="${RHT_ACT_KEY}"
+              trap "subscription-manager unregister" EXIT
+              buildah login -u "${SOURCE_REGISTRY_USER}" -p "${SOURCE_REGISTRY_PASSWORD}" "${SOURCE_REGISTRY_HOST}"
+              buildah bud -f "/build/${CONTAINERFILE}" -t ${DEST_REGISTRY_HOST}/${DEST_IMAGE}:${{ github.sha }}-${{ matrix.arch }} /build
+            '
+
+      - name: Push image
+        if: github.event_name != 'pull_request'
+        id: push
+        run: |
+          STORAGE_ROOT=$(podman volume inspect build-storage --format '{{.Mountpoint}}')
+          podman login "${DEST_REGISTRY_HOST}" \
+            -u "${DEST_REGISTRY_USER}" -p "${DEST_REGISTRY_PASSWORD}"
+          podman --root "${STORAGE_ROOT}/storage" push \
+            --digestfile ${{ runner.temp }}/digest \
+            "${DEST_REGISTRY_HOST}/${DEST_IMAGE}:${{ github.sha }}-${{ matrix.arch }}"
+          echo "digest=$(cat ${{ runner.temp }}/digest)" >> $GITHUB_OUTPUT
+
+      - name: Generate SBOM
+        if: github.event_name != 'pull_request' && inputs.generate_sbom == true
+        uses: anchore/sbom-action@v0.24.0
         with:
-          registry: registry.redhat.io
-          username: ${{ secrets.RHT_REG_SVCUSER }}
-          password: ${{ secrets.RHT_REG_SVCPASS }}
-          auth_file_path: /run/containers/0/auth.json
+          image: ${{ env.DEST_REGISTRY_HOST }}/${{ env.DEST_IMAGE }}@${{ steps.push.outputs.digest }}
+          registry-username: ${{ env.DEST_REGISTRY_USER }}
+          registry-password: ${{ env.DEST_REGISTRY_PASSWORD }}
+          format: spdx-json
+          upload-artifact: false
+          upload-release-assets: false
+          output-file: sbom.spdx.json
 
-      - name: Use buildah bud to create the image
-        id: build-image
-        uses: redhat-actions/buildah-build@v2
+      - name: Upload SBOM
+        if: github.event_name != 'pull_request' && inputs.generate_sbom == true
+        uses: actions/upload-artifact@v4
         with:
-          image: ${{ env.IMAGE_NAME }}
-          tags: ${{ env.TAGLIST }}
-          containerfiles: ${{ env.CONTAINERFILE }}
+          name: sbom-${{ matrix.arch }}
+          path: sbom.spdx.json
 
-      - name: Log in to the GitHub Container registry
-        uses: redhat-actions/podman-login@v1
-        with:
-          registry: ${{ env.PUSHREGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          auth_file_path: /run/containers/0/auth.json
-
-      - name: Push to GitHub Container Repository
-        id: push-to-ghcr
-        uses: redhat-actions/push-to-registry@v2
-        with:
-          image: ${{ steps.build-image.outputs.image }}
-          tags: ${{ steps.build-image.outputs.tags }}
-          registry: ${{ env.PUSHREGISTRY }}
-
-      - name: Clean up the subscription
+      - name: Cleanup build storage
         if: always()
-        env:
-          SMDEV_CONTAINER_OFF: 1
-        run: subscription-manager unregister
+        run: podman volume rm build-storage
+
+  manifest:
+    name: Create multi-arch manifest
+    needs: [build, compute-tags]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      TAGLIST: ${{ needs.compute-tags.outputs.taglist }}
+      ARCHLIST: ${{ needs.compute-tags.outputs.archlist }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install updated container tools
+        run: |
+          set -euo pipefail
+          if [ "$(dpkg --print-architecture)" = "amd64" ]; then
+            mirror="http://azure.archive.ubuntu.com/ubuntu"
+          else
+            mirror="http://ports.ubuntu.com/ubuntu-ports"
+          fi
+          echo "deb ${mirror} plucky universe main" | sudo tee /etc/apt/sources.list.d/plucky.list
+          printf 'Package: *\nPin: release n=plucky\nPin-Priority: 100\n' | sudo tee /etc/apt/preferences.d/plucky.pref
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends podman/plucky
+
+      - name: Install cosign
+        if: inputs.sign_image == true
+        uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: 'v3.1.1'
+
+      - name: Create and push manifest
+        id: manifest-push
+        run: |
+          set -euo pipefail
+          IMAGE_REF="${DEST_REGISTRY_HOST}/${DEST_IMAGE}"
+
+          podman login "${DEST_REGISTRY_HOST}" \
+            -u "${DEST_REGISTRY_USER}" -p "${DEST_REGISTRY_PASSWORD}"
+
+          podman manifest create localhost/tmp-manifest:build
+          for arch in ${ARCHLIST}; do
+            podman manifest add localhost/tmp-manifest:build \
+              "docker://${IMAGE_REF}:${{ github.sha }}-${arch}"
+          done
+
+          for tag in ${TAGLIST}; do
+            if [ "${tag}" = "${{ github.sha }}" ]; then
+              podman manifest push --all --digestfile /tmp/manifest-digest \
+                localhost/tmp-manifest:build "${IMAGE_REF}:${tag}"
+            else
+              podman manifest push --all localhost/tmp-manifest:build \
+                "${IMAGE_REF}:${tag}"
+            fi
+          done
+
+          podman manifest rm localhost/tmp-manifest:build
+          echo "digest=$(cat /tmp/manifest-digest)" >> $GITHUB_OUTPUT
+
+      - name: Download per-arch SBOMs
+        if: inputs.sign_image == true && inputs.generate_sbom == true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sbom-*
+          path: sboms
+
+      - name: Sign manifest and attest SBOMs
+        if: inputs.sign_image == true
+        run: |
+          set -euo pipefail
+          IMAGE_REF="${DEST_REGISTRY_HOST}/${DEST_IMAGE}"
+          DIGEST="${{ steps.manifest-push.outputs.digest }}"
+
+          cosign login "${DEST_REGISTRY_HOST}" -u "${DEST_REGISTRY_USER}" -p "${DEST_REGISTRY_PASSWORD}"
+          cosign sign --yes --signing-config signing-config.json "${IMAGE_REF}@${DIGEST}"
+
+          if [ "${{ inputs.generate_sbom }}" = "true" ]; then
+            for arch in ${ARCHLIST}; do
+              cosign attest --yes --signing-config signing-config.json \
+                --predicate "sboms/sbom-${arch}/sbom.spdx.json" --type spdxjson \
+                "${IMAGE_REF}@${DIGEST}"
+            done
+          fi
