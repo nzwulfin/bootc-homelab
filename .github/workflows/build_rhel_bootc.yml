@@ -31,9 +31,8 @@ env:
   RHT_ORGID: ${{ secrets.RHT_ORGID }}
   RHT_ACT_KEY: ${{ secrets.RHT_ACT_KEY }}
   SOURCE_REGISTRY_HOST: "registry.redhat.io"
-  # TODO: FIXME — rename GitHub secrets to SOURCE_REGISTRY_USER / SOURCE_REGISTRY_PASSWORD
-  SOURCE_REGISTRY_USER: ${{ secrets.RHT_REG_SVCUSER }}
-  SOURCE_REGISTRY_PASSWORD: ${{ secrets.RHT_REG_SVCPASS }}
+  SOURCE_REGISTRY_USER: ${{ secrets.SOURCE_REGISTRY_USER }}
+  SOURCE_REGISTRY_PASSWORD: ${{ secrets.SOURCE_REGISTRY_PASSWORD }}
   DEST_REGISTRY_HOST: "ghcr.io"
   DEST_IMAGE: "${{ github.actor }}/${{ github.event.repository.name }}"
   DEST_REGISTRY_USER: ${{ github.actor }}
