@@ -1,4 +1,17 @@
-# redhat-image-mode-actions
+# bootc based home lab environment
+
+[![Multi-arch image builds](https://github.com/nzwulfin/bootc-homelab/actions/workflows/build_rhel_bootc.yml/badge.svg)](https://github.com/nzwulfin/bootc-homelab/actions/workflows/build_rhel_bootc.yml)
+
+## Design
+
+Built off the GHA template repo listed below, this is the first in a chain of images to create a "home lab" server that supports KVM VMs and containers.  Management plane is provided via cockpit.
+
+Downstream, a host can layer additional packages, build time configuration changes, etc off this common baseline.
+
+Renovate is used to track updates to the RHEL 10 base image.
+
+This can be used for any bootc system, just remove any subscription information for non-RHEL hosts. Signing via cosign and SBOM generation via syft are optional.
+
 ## Template repo for Github Actions based builds of bootc images. 
 This repository is designed be used with the excercise in the redhat-cop/redhat-image-mode-demo repository. This template provides a sample Containerfile and workflow as a starting point for use in your own account. The workflow can be triggered in two ways, by creating a tag or manually. A manual trigger will set one of the tags to the branch name which may overwrite older manual builds.  For more information on the workflow design, refer to the exercise.
 
