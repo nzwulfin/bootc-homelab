@@ -113,6 +113,7 @@ jobs:
           fi
           echo "deb ${mirror} plucky universe main" | sudo tee /etc/apt/sources.list.d/plucky.list
           printf 'Package: *\nPin: release n=plucky\nPin-Priority: 100\n' | sudo tee /etc/apt/preferences.d/plucky.pref
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends crun/plucky podman/plucky
 
@@ -198,6 +199,7 @@ jobs:
           fi
           echo "deb ${mirror} plucky universe main" | sudo tee /etc/apt/sources.list.d/plucky.list
           printf 'Package: *\nPin: release n=plucky\nPin-Priority: 100\n' | sudo tee /etc/apt/preferences.d/plucky.pref
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends podman/plucky
 
