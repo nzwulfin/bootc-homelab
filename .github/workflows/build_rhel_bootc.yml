@@ -6,7 +6,7 @@ on:
       architectures:
         description: 'Target architectures'
         type: choice
-        default: 'both'
+        default: 'amd64'
         options:
           - both
           - amd64
@@ -73,7 +73,7 @@ jobs:
         id: arch
         run: |
           set -euo pipefail
-          ARCH_INPUT="${{ inputs.architectures || 'both' }}"
+          ARCH_INPUT="${{ inputs.architectures || 'amd64' }}"
 
           if [ "$ARCH_INPUT" = "both" ]; then
             echo 'matrix=[{"arch":"amd64","runner":"ubuntu-24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm"}]' >> $GITHUB_OUTPUT
