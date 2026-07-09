@@ -21,6 +21,8 @@ on:
         default: false
   push:
     branches: [main]
+    paths:
+      - 'Containerfile'
   release:
     types: [published]
   pull_request:
