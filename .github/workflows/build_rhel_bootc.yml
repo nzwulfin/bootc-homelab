@@ -164,7 +164,7 @@ jobs:
 
       - name: Upload SBOM
         if: github.event_name != 'pull_request' && inputs.generate_sbom == true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ matrix.arch }}
           path: sbom.spdx.json
@@ -239,7 +239,7 @@ jobs:
 
       - name: Download per-arch SBOMs
         if: inputs.sign_image == true && inputs.generate_sbom == true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: sbom-*
           path: sboms
