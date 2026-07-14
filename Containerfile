@@ -1,4 +1,4 @@
-FROM registry.redhat.io/rhel10/rhel-bootc:10.2-1783576695
+FROM registry.redhat.io/rhel10/rhel-bootc:10.2-1784000924
 
 # Install packages needed for Insights, containers, virtual machines, cockpit
 RUN dnf -y install rhc rhc-worker-playbook insights-client \
