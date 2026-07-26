@@ -209,7 +209,7 @@ jobs:
         if: inputs.sign_image == true
         uses: sigstore/cosign-installer@v4.1.2
         with:
-          cosign-release: 'v3.1.1'
+          cosign-release: 'v3.1.2'
 
       - name: Create and push manifest
         id: manifest-push
