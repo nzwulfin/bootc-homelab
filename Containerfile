@@ -1,4 +1,4 @@
-FROM registry.redhat.io/rhel10/rhel-bootc:10.2-1784795834
+FROM registry.redhat.io/rhel10/rhel-bootc:10.2-1785283868
 
 # Install packages needed for Insights, containers, virtual machines, cockpit
 RUN dnf -y install --exclude=kernel-debug* \
