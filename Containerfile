@@ -20,8 +20,20 @@ RUN systemctl mask bootc-fetch-apply-updates.timer
 # Enable nss support for virtdomain name resolution
 RUN sed -i 's/hosts:\s\+ files/& libvirt libvirt_guest/' /etc/nsswitch.conf
 
+# Add sysusers triggered by lint
+COPY libvirt-dbus.sysusers.conf /usr/lib/sysusers.d/
+# Add tmpfiles triggered by lint
+COPY homelab-var.conf /usr/lib/tmpfiles.d/
+
 # Remove some targeted build leftovers we won't need in var
-RUN rm /var/{cache,lib}/dnf /var/lib/rhsm /var/cache/ldconfig -rf
+RUN rm /var/{cache,lib}/dnf /var/lib/rhsm /var/cache/ldconfig \
+  /var/log/*.log \
+  /var/log/pcp/pmlogger/.NeedRewrite \
+  /var/log/rhsm/*.log \
+  /var/roothome/.viminfo \
+  /var/roothome/buildinfo \
+-rf
 
 # For good measure, lint the container
-RUN bootc container lint
+# RUN bootc container lint --fatal-warnings --no-truncate
+RUN bootc container lint --no-truncate
