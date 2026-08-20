@@ -1,7 +1,7 @@
 FROM registry.redhat.io/rhel10/rhel-bootc:10.2-1787037459
 
 # Install packages needed for Insights, containers, virtual machines, cockpit
-RUN dnf -y install \
+RUN dnf -y install --exclude=kernel-debug* \
 		   rhc rhc-worker-playbook insights-client \
            qemu-kvm libvirt virt-install virt-viewer libvirt-nss guestfs-tools \
            podman buildah skopeo \
