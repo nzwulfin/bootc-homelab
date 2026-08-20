@@ -1,12 +1,12 @@
 FROM registry.redhat.io/rhel10/rhel-bootc:10.2-1787037459
 
 # Install packages needed for Insights, containers, virtual machines, cockpit
-RUN dnf -y install --exclude=kernel-debug* \
+RUN dnf -y install \
 		   rhc rhc-worker-playbook insights-client \
-                   qemu-kvm libvirt virt-install virt-viewer libvirt-nss guestfs-tools \
-                   podman buildah skopeo \
-                   cockpit cockpit-machines cockpit-podman cockpit-storaged cockpit-networkmanager cockpit-files \
-                   firewalld vim pcp python3-pcp tuned && dnf clean all 
+           qemu-kvm libvirt virt-install virt-viewer libvirt-nss guestfs-tools \
+           podman buildah skopeo \
+           cockpit cockpit-machines cockpit-podman cockpit-storaged cockpit-networkmanager cockpit-files \
+           firewalld vim pcp python3-pcp tuned && dnf clean all 
 
 # Passwordless sudo for admins
 RUN echo "%wheel        ALL=(ALL)       NOPASSWD: ALL" > /etc/sudoers.d/wheel-sudo
