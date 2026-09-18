@@ -46,7 +46,7 @@ concurrency:
 
 jobs:
   compute-tags:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       taglist: ${{ steps.tags.outputs.taglist }}
       matrix: ${{ steps.arch.outputs.matrix }}
@@ -179,7 +179,7 @@ jobs:
     name: Create multi-arch manifest
     needs: [build, compute-tags]
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
