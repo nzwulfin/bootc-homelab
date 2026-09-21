@@ -78,13 +78,13 @@ jobs:
           ARCH_INPUT="${{ inputs.architectures || 'amd64' }}"
 
           if [ "$ARCH_INPUT" = "both" ]; then
-            echo 'matrix=[{"arch":"amd64","runner":"ubuntu-24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm"}]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"arch":"amd64","runner":"ubuntu-26.04"},{"arch":"arm64","runner":"ubuntu-26.04-arm"}]' >> $GITHUB_OUTPUT
             echo "archlist=amd64 arm64" >> $GITHUB_OUTPUT
           elif [ "$ARCH_INPUT" = "amd64" ]; then
-            echo 'matrix=[{"arch":"amd64","runner":"ubuntu-24.04"}]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"arch":"amd64","runner":"ubuntu-26.04"}]' >> $GITHUB_OUTPUT
             echo "archlist=amd64" >> $GITHUB_OUTPUT
           else
-            echo 'matrix=[{"arch":"arm64","runner":"ubuntu-24.04-arm"}]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"arch":"arm64","runner":"ubuntu-26.04-arm"}]' >> $GITHUB_OUTPUT
             echo "archlist=arm64" >> $GITHUB_OUTPUT
           fi
 
