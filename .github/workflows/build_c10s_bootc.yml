@@ -104,8 +104,10 @@ jobs:
       - name: Build image
         run: |
           podman volume create build-storage
+          podman volume create build-tmp
           podman run --rm --privileged \
             -v build-storage:/var/lib/containers \
+            -v build-tmp:/var/tmp \
             -v ${{ github.workspace }}:/build \
             -e CONTAINERFILE \
             -e TAG_PREFIX \
@@ -149,7 +151,7 @@ jobs:
 
       - name: Cleanup build storage
         if: always()
-        run: podman volume rm build-storage
+        run: podman volume rm build-storage build-tmp
 
   manifest:
     name: Create multi-arch manifest
