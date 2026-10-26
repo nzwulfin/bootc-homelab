@@ -1,0 +1,229 @@
+name: Build multi-arch CentOS Stream 10 bootc images with native container tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      architectures:
+        description: 'Target architectures'
+        type: choice
+        default: 'amd64'
+        options:
+          - both
+          - amd64
+          - arm64
+      generate_sbom:
+        description: 'Generate SBOM artifacts'
+        type: boolean
+        default: false
+      sign_image:
+        description: 'Sign image with cosign'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'Containerfile.c10s'
+  release:
+    types: [published]
+  pull_request:
+    branches: [main]
+
+env:
+  TAG_PREFIX: "c10s-"
+  CONTAINERFILE: Containerfile.c10s
+  DEST_REGISTRY_HOST: "ghcr.io"
+  DEST_IMAGE: "${{ github.repository }}"
+  DEST_REGISTRY_USER: ${{ github.actor }}
+  DEST_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compute-tags:
+    runs-on: ubuntu-26.04
+    outputs:
+      taglist: ${{ steps.tags.outputs.taglist }}
+      matrix: ${{ steps.arch.outputs.matrix }}
+      archlist: ${{ steps.arch.outputs.archlist }}
+    steps:
+      - name: Compute tag list
+        id: tags
+        run: |
+          set -euo pipefail
+          TAGS="${{ github.sha }}"
+          REF="${{ github.ref_name }}"
+          SAFE_REF="${REF//\//-}"
+          EVENT="${{ github.event_name }}"
+
+          if [ "$EVENT" = "release" ]; then
+            TAGS="${TAG_PREFIX}latest ${TAG_PREFIX}$TAGS ${TAG_PREFIX}$SAFE_REF"
+          elif [ "$EVENT" = "push" ] && [ "$SAFE_REF" = "main" ]; then
+            TAGS="${TAG_PREFIX}latest ${TAG_PREFIX}$TAGS"
+          elif [ "$SAFE_REF" != "main" ]; then
+            TAGS="${TAG_PREFIX}$TAGS ${TAG_PREFIX}$SAFE_REF"
+          fi
+
+          echo "taglist=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Compute architecture matrix
+        id: arch
+        run: |
+          set -euo pipefail
+          ARCH_INPUT="${{ inputs.architectures || 'amd64' }}"
+
+          if [ "$ARCH_INPUT" = "both" ]; then
+            echo 'matrix=[{"arch":"amd64","runner":"ubuntu-26.04"},{"arch":"arm64","runner":"ubuntu-26.04-arm"}]' >> $GITHUB_OUTPUT
+            echo "archlist=amd64 arm64" >> $GITHUB_OUTPUT
+          elif [ "$ARCH_INPUT" = "amd64" ]; then
+            echo 'matrix=[{"arch":"amd64","runner":"ubuntu-26.04"}]' >> $GITHUB_OUTPUT
+            echo "archlist=amd64" >> $GITHUB_OUTPUT
+          else
+            echo 'matrix=[{"arch":"arm64","runner":"ubuntu-26.04-arm"}]' >> $GITHUB_OUTPUT
+            echo "archlist=arm64" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: compute-tags
+    name: build / ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.compute-tags.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TAGLIST: ${{ needs.compute-tags.outputs.taglist }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: |
+          podman volume create build-storage
+          podman volume create build-tmp
+          podman run --rm --privileged \
+            -v build-storage:/var/lib/containers \
+            -v build-tmp:/var/tmp \
+            -v ${{ github.workspace }}:/build \
+            -e CONTAINERFILE \
+            -e TAG_PREFIX \
+            -e DEST_REGISTRY_HOST -e DEST_IMAGE \
+             quay.io/centos/centos:stream10 bash -c '
+              set -euo pipefail
+              dnf -y install buildah
+              buildah bud -f "/build/${CONTAINERFILE}" -t ${DEST_REGISTRY_HOST}/${DEST_IMAGE}:${TAG_PREFIX}${{ github.sha }}-${{ matrix.arch }} /build
+            '
+
+      - name: Push image
+        if: github.event_name != 'pull_request'
+        id: push
+        run: |
+          STORAGE_ROOT=$(podman volume inspect build-storage --format '{{.Mountpoint}}')
+          podman login "${DEST_REGISTRY_HOST}" \
+            -u "${DEST_REGISTRY_USER}" -p "${DEST_REGISTRY_PASSWORD}"
+          podman --root "${STORAGE_ROOT}/storage" push \
+            --digestfile ${{ runner.temp }}/digest \
+            "${DEST_REGISTRY_HOST}/${DEST_IMAGE}:${TAG_PREFIX}${{ github.sha }}-${{ matrix.arch }}"
+          echo "digest=$(cat ${{ runner.temp }}/digest)" >> $GITHUB_OUTPUT
+
+      - name: Generate SBOM
+        if: github.event_name != 'pull_request' && inputs.generate_sbom == true
+        uses: anchore/sbom-action@v0.24.3
+        with:
+          image: ${{ env.DEST_REGISTRY_HOST }}/${{ env.DEST_IMAGE }}@${{ steps.push.outputs.digest }}
+          registry-username: ${{ env.DEST_REGISTRY_USER }}
+          registry-password: ${{ env.DEST_REGISTRY_PASSWORD }}
+          format: spdx-json
+          upload-artifact: false
+          upload-release-assets: false
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM
+        if: github.event_name != 'pull_request' && inputs.generate_sbom == true
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-${{ env.TAG_PREFIX }}${{ matrix.arch }}
+          path: sbom.spdx.json
+
+      - name: Cleanup build storage
+        if: always()
+        run: podman volume rm build-storage build-tmp
+
+  manifest:
+    name: Create multi-arch manifest
+    needs: [build, compute-tags]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      TAGLIST: ${{ needs.compute-tags.outputs.taglist }}
+      ARCHLIST: ${{ needs.compute-tags.outputs.archlist }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install cosign
+        if: inputs.sign_image == true
+        uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: 'v3.1.3'
+
+      - name: Create and push manifest
+        id: manifest-push
+        run: |
+          set -euo pipefail
+          IMAGE_REF="${DEST_REGISTRY_HOST}/${DEST_IMAGE}"
+
+          podman login "${DEST_REGISTRY_HOST}" \
+            -u "${DEST_REGISTRY_USER}" -p "${DEST_REGISTRY_PASSWORD}"
+
+          podman manifest create localhost/tmp-manifest:build
+          for arch in ${ARCHLIST}; do
+            podman manifest add localhost/tmp-manifest:build \
+              "docker://${IMAGE_REF}:${TAG_PREFIX}${{ github.sha }}-${arch}"
+          done
+
+          for tag in ${TAGLIST}; do
+            if [ "${tag}" = "${TAG_PREFIX}${{ github.sha }}" ]; then
+              podman manifest push --all --digestfile /tmp/manifest-digest \
+                localhost/tmp-manifest:build "${IMAGE_REF}:${tag}"
+            else
+              podman manifest push --all localhost/tmp-manifest:build \
+                "${IMAGE_REF}:${tag}"
+            fi
+          done
+
+          podman manifest rm localhost/tmp-manifest:build
+          echo "digest=$(cat /tmp/manifest-digest)" >> $GITHUB_OUTPUT
+
+      - name: Download per-arch SBOMs
+        if: inputs.sign_image == true && inputs.generate_sbom == true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: sbom-${{ env.TAG_PREFIX }}*
+          path: sboms
+
+      - name: Sign manifest and attest SBOMs
+        if: inputs.sign_image == true
+        run: |
+          set -euo pipefail
+          IMAGE_REF="${DEST_REGISTRY_HOST}/${DEST_IMAGE}"
+          DIGEST="${{ steps.manifest-push.outputs.digest }}"
+
+          cosign login "${DEST_REGISTRY_HOST}" -u "${DEST_REGISTRY_USER}" -p "${DEST_REGISTRY_PASSWORD}"
+          cosign sign --yes --signing-config signing-config.json "${IMAGE_REF}@${DIGEST}"
+
+          if [ "${{ inputs.generate_sbom }}" = "true" ]; then
+            for arch in ${ARCHLIST}; do
+              cosign attest --yes --signing-config signing-config.json \
+                --predicate "sboms/sbom-${TAG_PREFIX}${arch}/sbom.spdx.json" --type spdxjson \
+                "${IMAGE_REF}@${DIGEST}"
+            done
+          fi
