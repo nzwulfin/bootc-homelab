@@ -31,6 +31,8 @@ on:
     types: [published]
   pull_request:
     branches: [main]
+    paths:
+      - 'Containerfile'
 
 env:
   CONTAINERFILE: Containerfile
