@@ -3,6 +3,10 @@ name: Build multi-arch CentOS Stream 10 bootc images with native container tools
 on:
   workflow_dispatch:
     inputs:
+      publish_latest:
+        description: 'Update the latest tag (release-style publish run)'
+        type: boolean
+        default: false
       architectures:
         description: 'Target architectures'
         type: choice
@@ -56,12 +60,15 @@ jobs:
           REF="${{ github.ref_name }}"
           SAFE_REF="${REF//\//-}"
           EVENT="${{ github.event_name }}"
+          PUBLISH="${{ inputs.publish_latest || 'false' }}"
 
           if [ "$EVENT" = "release" ]; then
             TAGS="${TAG_PREFIX}latest ${TAG_PREFIX}$TAGS ${TAG_PREFIX}$SAFE_REF"
           elif [ "$EVENT" = "push" ] && [ "$SAFE_REF" = "main" ]; then
             TAGS="${TAG_PREFIX}latest ${TAG_PREFIX}$TAGS"
-          elif [ "$SAFE_REF" != "main" ]; then
+          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$SAFE_REF" = "main" ] && [ "$PUBLISH" = "true" ]; then
+            TAGS="${TAG_PREFIX}latest ${TAG_PREFIX}$TAGS"
+          else
             TAGS="${TAG_PREFIX}$TAGS ${TAG_PREFIX}$SAFE_REF"
           fi
 

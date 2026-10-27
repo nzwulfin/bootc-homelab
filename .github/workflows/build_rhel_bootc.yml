@@ -3,6 +3,10 @@ name: Build multi-arch RHEL bootc images with native container tools
 on:
   workflow_dispatch:
     inputs:
+      publish_latest:
+        description: 'Update the latest tag (release-style publish run)'
+        type: boolean
+        default: false
       architectures:
         description: 'Target architectures'
         type: choice
@@ -60,12 +64,15 @@ jobs:
           REF="${{ github.ref_name }}"
           SAFE_REF="${REF//\//-}"
           EVENT="${{ github.event_name }}"
+          PUBLISH="${{ inputs.publish_latest || 'false' }}"
 
           if [ "$EVENT" = "release" ]; then
             TAGS="latest $TAGS $SAFE_REF"
           elif [ "$EVENT" = "push" ] && [ "$SAFE_REF" = "main" ]; then
             TAGS="latest $TAGS"
-          elif [ "$SAFE_REF" != "main" ]; then
+          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$SAFE_REF" = "main" ] && [ "$PUBLISH" = "true" ]; then
+            TAGS="latest $TAGS"
+          else
             TAGS="$TAGS $SAFE_REF"
           fi
 
