@@ -1,4 +1,4 @@
-FROM quay.io/centos-bootc/centos-bootc:stream10@sha256:fc6d0035aa26af5802d98da63f0451cca865c83ca4bb515958ebed1522a8c485
+FROM quay.io/centos-bootc/centos-bootc:stream10@sha256:4c8fb92638f8dfd77564c069f7342474d45ba46370214c8e51bc5c8fb0b5418b
 
 # Install packages needed for Insights, containers, virtual machines, cockpit
 RUN dnf -y install --exclude=kernel-debug* \
